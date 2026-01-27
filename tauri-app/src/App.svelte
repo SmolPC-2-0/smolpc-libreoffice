@@ -3,14 +3,21 @@
   import { appStore } from '$lib/stores/app.svelte';
   import { chatStore } from '$lib/stores/chat.svelte';
   import { mcpStore } from '$lib/stores/mcp.svelte';
+  import { settingsStore } from '$lib/stores/settings.svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import ChatMessage from '$lib/components/ChatMessage.svelte';
   import ChatInput from '$lib/components/ChatInput.svelte';
+  import SettingsPage from '$lib/components/SettingsPage.svelte';
+
+  type View = 'chat' | 'settings';
 
   let messagesContainer: HTMLDivElement;
-  let selectedModel = $state('phi3:latest');
+  let currentView = $state<View>('chat');
 
   onMount(async () => {
+    // Load settings first
+    await settingsStore.loadSettings();
+
     await appStore.initialize();
 
     // Load MCP tools if server is running
@@ -32,7 +39,8 @@
   });
 
   async function handleSend(message: string) {
-    const ollamaUrl = 'http://localhost:11434';
+    const ollamaUrl = settingsStore.settings.ollama_url;
+    const selectedModel = settingsStore.settings.selected_model;
     await chatStore.sendMessage(message, selectedModel, ollamaUrl);
   }
 </script>
@@ -44,11 +52,20 @@
     libreofficeStatus={appStore.libreofficeStatus}
     mcpStatus={appStore.mcpStatus}
   />
+{:else if currentView === 'settings'}
+  <SettingsPage onClose={() => currentView = 'chat'} />
 {:else}
   <div class="app">
     <header>
-      <h1>LibreOffice AI</h1>
-      <p class="subtitle">Chat with AI to create and edit documents</p>
+      <div class="header-content">
+        <div>
+          <h1>LibreOffice AI</h1>
+          <p class="subtitle">Chat with AI to create and edit documents</p>
+        </div>
+        <button class="settings-button" onclick={() => currentView = 'settings'} aria-label="Settings">
+          ⚙️
+        </button>
+      </div>
     </header>
 
     <div class="chat-container">
@@ -106,6 +123,12 @@
     flex-shrink: 0;
   }
 
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
   h1 {
     font-size: 1.5rem;
     font-weight: bold;
@@ -116,6 +139,23 @@
   .subtitle {
     color: #a0a0a0;
     font-size: 0.9rem;
+  }
+
+  .settings-button {
+    background: none;
+    border: 2px solid #3a3a3a;
+    color: #a0a0a0;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+
+  .settings-button:hover {
+    border-color: #4a9eff;
+    color: #4a9eff;
+    background-color: rgba(74, 158, 255, 0.1);
   }
 
   .chat-container {
