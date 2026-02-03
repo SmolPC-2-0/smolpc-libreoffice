@@ -20,12 +20,26 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - 27 LibreOffice document manipulation tools
 - macOS development workflow documented
 
-**Week 3-5: Pending**
-- Settings UI (model selection, configuration)
+**Week 3: ✅ COMPLETED**
+- Settings UI with full configuration management
+- Settings persistence with Rust backend
+- Model selection dropdown
+- Path configuration (Python, Documents, LibreOffice)
+- Temperature and max tokens controls
+- System prompt customization
+- Settings button in chat interface
+
+**Week 4-5: Pending**
 - Enhanced chat features (history, export)
 - Document management UI
 - Voice input integration (Whisper)
 - See [MIGRATION_PLAN.md](../MIGRATION_PLAN.md) for full roadmap
+
+---
+
+## 📖 New to Windows? Start Here!
+
+**→ [Complete Windows Setup Guide](GETTING_STARTED_WINDOWS.md)** - Step-by-step installation for beginners with no dependencies installed.
 
 ## Tech Stack
 
