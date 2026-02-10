@@ -49,7 +49,7 @@ class McpStore {
       function: {
         name: tool.name,
         description: tool.description,
-        parameters: tool.input_schema || {}
+        parameters: tool.input_schema || { type: "object", properties: {} }
       }
     }));
   }

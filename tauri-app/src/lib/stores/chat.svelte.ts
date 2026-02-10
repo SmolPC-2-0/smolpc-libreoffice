@@ -3,6 +3,7 @@ import type { ChatMessage as OllamaChatMessage, ToolCall } from '$lib/types/olla
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { mcpStore } from './mcp.svelte';
+import { settingsStore } from './settings.svelte';
 
 class ChatStore {
   messages = $state<ChatMessage[]>([]);
@@ -37,11 +38,25 @@ class ChatStore {
     this.isGenerating = true;
     this.currentStreamingMessage = '';
 
-    // Build message history
-    const ollamaMessages: OllamaChatMessage[] = this.messages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    // Build message history with system prompt
+    const ollamaMessages: OllamaChatMessage[] = [];
+
+    // Add system prompt with tool awareness
+    const tools = mcpStore.status.running ? mcpStore.getOllamaTools() : undefined;
+    const toolNames = tools?.map(t => t.function.name).join(', ') || '';
+    const customPrompt = settingsStore.settings.system_prompt || '';
+    const systemPrompt = [
+      'You are a helpful assistant with access to tools for managing documents via LibreOffice.',
+      toolNames ? `You have the following tools available: ${toolNames}. Use them when the user asks you to create, edit, or manage documents. Always prefer using your tools over giving manual instructions.` : '',
+      customPrompt
+    ].filter(Boolean).join('\n\n');
+
+    ollamaMessages.push({ role: 'system', content: systemPrompt });
+
+    // Add conversation history
+    for (const msg of this.messages) {
+      ollamaMessages.push({ role: msg.role, content: msg.content });
+    }
 
     try {
       let toolCalls: ToolCall[] | undefined;
@@ -49,6 +64,7 @@ class ChatStore {
       // Set up listener for stream chunks
       const unlisten = await listen<any>('ollama-stream-chunk', (event) => {
         const chunk = event.payload;
+        console.log('Stream chunk received:', JSON.stringify(chunk).slice(0, 300));
 
         if (chunk.message && chunk.message.content) {
           this.currentStreamingMessage += chunk.message.content;
@@ -57,9 +73,11 @@ class ChatStore {
         // Capture tool calls if present
         if (chunk.message && chunk.message.tool_calls) {
           toolCalls = chunk.message.tool_calls;
+          console.log('Tool calls detected:', toolCalls);
         }
 
         if (chunk.done) {
+          console.log('Stream done. Tool calls:', toolCalls);
           // Handle completion
           this.handleStreamComplete(toolCalls, model, ollamaUrl, unlisten);
         }
@@ -74,10 +92,8 @@ class ChatStore {
         unlisten();
       });
 
-      // Get MCP tools if available
-      const tools = mcpStore.status.running ? mcpStore.getOllamaTools() : undefined;
-
       // Start streaming
+      console.log(`Starting chat_stream: model=${model}, messages=${ollamaMessages.length}, tools=${tools?.length ?? 0}`);
       await invoke('chat_stream', {
         ollamaUrl,
         request: {
@@ -86,6 +102,7 @@ class ChatStore {
           tools
         }
       });
+      console.log('chat_stream invoke returned successfully');
 
     } catch (error) {
       console.error('Failed to start chat:', error);

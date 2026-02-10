@@ -138,15 +138,20 @@ def start_helper():
 
 
 def start_mcp_server():
-    """Start the MCP server"""
+    """Start the MCP server, passing stdin/stdout through for JSON-RPC communication"""
     print("Starting Office MCP server...", file=sys.stderr)
     server_script = os.path.join(os.path.dirname(__file__), "libre.py")
 
+    # Pass stdin/stdout through so the parent process can communicate
+    # via JSON-RPC over stdio with the MCP server (libre.py)
     subprocess.run(
         [
             sys.executable,  # Use the same Python interpreter
             server_script,
-        ]
+        ],
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
     )
 
 

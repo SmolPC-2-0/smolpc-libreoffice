@@ -16,10 +16,22 @@ fn get_mcp_resource_path(app: &AppHandle) -> Result<PathBuf, String> {
     // In production, Tauri will bundle these files
 
     if cfg!(debug_assertions) {
-        // Development mode - use local path
+        // Development mode - cargo runs from src-tauri/, go up to tauri-app/
         let current_dir = std::env::current_dir()
             .map_err(|e| format!("Failed to get current directory: {}", e))?;
-        Ok(current_dir.join("resources/mcp_server"))
+        let mcp_dir = current_dir.join("resources/mcp_server");
+        // If the venv exists here, use this path; otherwise try parent directory
+        if mcp_dir.join(".venv").exists() {
+            Ok(mcp_dir)
+        } else {
+            let parent_mcp_dir = current_dir.join("../resources/mcp_server");
+            if parent_mcp_dir.exists() {
+                log::info!("Using parent directory MCP path: {:?}", parent_mcp_dir);
+                Ok(parent_mcp_dir)
+            } else {
+                Ok(mcp_dir) // Fall back to original path
+            }
+        }
     } else {
         // Production mode - use bundled resources
         let resource_dir = app

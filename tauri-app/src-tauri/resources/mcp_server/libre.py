@@ -10,6 +10,14 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
 import time
+import builtins
+
+# Redirect all print() to stderr — stdout is reserved for MCP JSON-RPC protocol
+_original_print = builtins.print
+def _print_to_stderr(*args, **kwargs):
+    kwargs.setdefault('file', sys.stderr)
+    _original_print(*args, **kwargs)
+builtins.print = _print_to_stderr
 
 log_path = os.path.join(os.path.dirname(__file__), "libre.log")
 logging.basicConfig(
@@ -71,19 +79,38 @@ def queue_worker():
 
                 logging.info(request_data)
 
-                # Receive response
-                response_data = client_socket.recv(16384).decode("utf-8")
-                client_socket.close()
-
-                logging.info(response_data)
-
-                if not response_data:
+                # Receive response (helper.py sends 4-byte big-endian length header + JSON)
+                length_data = client_socket.recv(4)
+                if len(length_data) < 4:
+                    client_socket.close()
                     response = {
                         "status": "error",
-                        "message": "Empty response from helper",
+                        "message": "Incomplete length header from helper",
                     }
                 else:
-                    response = json.loads(response_data)
+                    msg_length = int.from_bytes(length_data, byteorder="big")
+
+                    # Read exactly msg_length bytes
+                    chunks = []
+                    bytes_remaining = msg_length
+                    while bytes_remaining > 0:
+                        chunk = client_socket.recv(min(bytes_remaining, 16384))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        bytes_remaining -= len(chunk)
+
+                    client_socket.close()
+                    response_data = b"".join(chunks).decode("utf-8")
+                    logging.info(response_data)
+
+                    if not response_data:
+                        response = {
+                            "status": "error",
+                            "message": "Empty response from helper",
+                        }
+                    else:
+                        response = json.loads(response_data)
 
             except socket.timeout:
                 response = {

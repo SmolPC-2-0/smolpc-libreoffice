@@ -39,11 +39,11 @@ class SettingsStore {
 
   async loadAvailableModels(): Promise<void> {
     try {
-      const models = await invoke<Model[]>('list_ollama_models', {
+      const response = await invoke<{ models: Model[] }>('list_ollama_models', {
         ollamaUrl: this.settings.ollama_url
       });
-      this.availableModels = models;
-      console.log(`Loaded ${models.length} Ollama models`);
+      this.availableModels = response.models;
+      console.log(`Loaded ${response.models.length} Ollama models`);
     } catch (error) {
       console.error('Failed to load Ollama models:', error);
       this.availableModels = [];

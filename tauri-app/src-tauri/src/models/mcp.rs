@@ -75,6 +75,7 @@ pub struct ToolContent {
 
 /// MCP initialization parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpInitParams {
     pub protocol_version: String,
     pub capabilities: McpCapabilities,

@@ -12,7 +12,10 @@ pub struct OllamaService {
 impl OllamaService {
     pub fn new(base_url: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             base_url,
         }
     }
@@ -39,7 +42,10 @@ impl OllamaService {
         let response = self.client.post(&url).json(&req).send().await?;
 
         if !response.status().is_success() {
-            anyhow::bail!("Chat request failed: {}", response.status());
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            log::error!("Ollama chat failed ({}): {}", status, body);
+            anyhow::bail!("Chat request failed: {} - {}", status, body);
         }
 
         let chat_response = response.json::<ChatResponse>().await?;
@@ -56,63 +62,77 @@ impl OllamaService {
         let mut req = request.clone();
         req.stream = true;
 
+        // Log the request for debugging
+        if let Ok(json_str) = serde_json::to_string(&req) {
+            log::info!("Ollama chat request (len={}): {}", json_str.len(), &json_str[..json_str.len().min(500)]);
+        }
+        log::info!("Sending request to {}", url);
+
         let response = self.client.post(&url).json(&req).send().await?;
+        log::info!("Ollama responded with status: {}", response.status());
 
         if !response.status().is_success() {
-            anyhow::bail!("Chat stream request failed: {}", response.status());
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            log::error!("Ollama chat stream failed ({}): {}", status, body);
+            anyhow::bail!("Chat stream request failed: {} - {}", status, body);
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
 
         tokio::spawn(async move {
             let mut stream = response.bytes_stream();
-
             let mut buffer = String::new();
+
+            let process_line = |line: &str, tx: &mpsc::UnboundedSender<Result<StreamChunk>>| -> bool {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return false; // continue processing
+                }
+                log::info!("Ollama chunk: {}", &trimmed[..trimmed.len().min(200)]);
+                match serde_json::from_str::<StreamChunk>(trimmed) {
+                    Ok(stream_chunk) => {
+                        let done = stream_chunk.done;
+                        if tx.send(Ok(stream_chunk)).is_err() {
+                            return true; // receiver dropped, stop
+                        }
+                        done
+                    }
+                    Err(e) => {
+                        log::error!("Failed to parse Ollama chunk: {} — raw: {}", e, &trimmed[..trimmed.len().min(500)]);
+                        let _ = tx.send(Err(anyhow::anyhow!("Failed to parse stream chunk: {}", e)));
+                        false
+                    }
+                }
+            };
 
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
                     Ok(chunk) => {
-                        // Convert bytes to string and add to buffer
                         if let Ok(text) = std::str::from_utf8(&chunk) {
                             buffer.push_str(text);
 
-                            // Process complete JSON objects (separated by newlines)
                             while let Some(newline_pos) = buffer.find('\n') {
-                                let line = buffer[..newline_pos].trim().to_string();
+                                let line = buffer[..newline_pos].to_string();
                                 buffer = buffer[newline_pos + 1..].to_string();
-
-                                if line.is_empty() {
-                                    continue;
-                                }
-
-                                // Try to parse as StreamChunk
-                                match serde_json::from_str::<StreamChunk>(&line) {
-                                    Ok(stream_chunk) => {
-                                        if tx.send(Ok(stream_chunk.clone())).is_err() {
-                                            // Receiver dropped, stop streaming
-                                            return;
-                                        }
-
-                                        // If done, stop streaming
-                                        if stream_chunk.done {
-                                            return;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = tx.send(Err(anyhow::anyhow!(
-                                            "Failed to parse stream chunk: {}",
-                                            e
-                                        )));
-                                    }
+                                if process_line(&line, &tx) {
+                                    return;
                                 }
                             }
                         }
                     }
                     Err(e) => {
+                        log::error!("Ollama stream error: {}", e);
                         let _ = tx.send(Err(anyhow::anyhow!("Stream error: {}", e)));
                         return;
                     }
                 }
+            }
+
+            // Process any remaining data in the buffer after stream ends
+            if !buffer.trim().is_empty() {
+                log::info!("Processing remaining buffer: {}", &buffer[..buffer.len().min(200)]);
+                process_line(&buffer, &tx);
             }
         });
 

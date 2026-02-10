@@ -11,23 +11,33 @@ pub struct DependencyStatus {
 
 #[tauri::command]
 pub async fn check_python() -> Result<DependencyStatus, String> {
-    match Command::new("python3").arg("--version").output() {
-        Ok(output) => {
-            let version = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(DependencyStatus {
-                name: "Python".to_string(),
-                installed: true,
-                version: Some(version.trim().to_string()),
-                error_message: None,
-            })
+    // Try python3, python, and py (Windows launcher) in order
+    let commands = if cfg!(target_os = "windows") {
+        vec!["python", "python3", "py"]
+    } else {
+        vec!["python3", "python"]
+    };
+
+    for cmd in commands {
+        if let Ok(output) = Command::new(cmd).arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).to_string();
+                return Ok(DependencyStatus {
+                    name: "Python".to_string(),
+                    installed: true,
+                    version: Some(version.trim().to_string()),
+                    error_message: None,
+                });
+            }
         }
-        Err(_) => Ok(DependencyStatus {
-            name: "Python".to_string(),
-            installed: false,
-            version: None,
-            error_message: Some("Python 3.12+ not found. Please install from python.org".to_string()),
-        }),
     }
+
+    Ok(DependencyStatus {
+        name: "Python".to_string(),
+        installed: false,
+        version: None,
+        error_message: Some("Python 3.12+ not found. Please install from python.org".to_string()),
+    })
 }
 
 #[tauri::command]

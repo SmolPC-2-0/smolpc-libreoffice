@@ -19,8 +19,8 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ollama_url: 'http://localhost:11434',
-  selected_model: 'phi3:latest',
-  python_path: 'python3',
+  selected_model: 'qwen2.5-coder:7b',
+  python_path: 'python',
   documents_path: '~/Documents',
   libreoffice_path: null,
   theme: 'dark',
