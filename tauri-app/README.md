@@ -29,7 +29,14 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - System prompt customization
 - Settings button in chat interface
 
-**Week 4-5: Pending**
+**Week 4: ✅ COMPLETED**
+- End-to-end tool calling verified on Windows
+- Fixed socket framing mismatch between libre.py and helper.py
+- Non-blocking chat streaming (tokio::spawn for HTTP requests)
+- Ollama tool parameter validation fix
+- Full document creation pipeline working
+
+**Week 5+: Pending**
 - Enhanced chat features (history, export)
 - Document management UI
 - Voice input integration (Whisper)
@@ -233,7 +240,7 @@ Show main app or loading screen
 ### Week 2 ✅
 **Ollama Integration**
 - HTTP streaming chat with token-by-token display
-- Support for any Ollama model (tested: phi3, qwen2.5-coder, deepseek-coder)
+- Support for any Ollama model with tool calling (tested: qwen2.5-coder:7b, qwen2.5:1.5b)
 - Real-time response generation with visual feedback
 - Automatic model discovery
 - Tool calling infrastructure for MCP integration
@@ -265,11 +272,10 @@ Show main app or loading screen
 - **Manual Process Management**: LibreOffice headless and helper.py must be started manually on macOS due to security restrictions. See [MACOS_TESTING.md](../MACOS_TESTING.md) for workflow.
 
 ### General
-- **End-to-End MCP Testing**: Full tool calling flow needs testing on Windows (blocked by macOS stdio issue in development)
-- **Model Compatibility**: Not all Ollama models support function calling. Use tested models: phi3, qwen2.5-coder, deepseek-coder
-- **Chat Persistence**: Messages are not saved between sessions (Week 3 feature)
-- **Settings UI**: No UI for configuration changes yet (Week 3 feature)
-- **Voice Input**: Not implemented (Week 4-5 feature)
+- **Model Compatibility**: Not all Ollama models support function calling. Tested working models: qwen2.5-coder:7b, qwen2.5:1.5b. Models must support Ollama's tool calling format.
+- **CPU Performance**: On CPU-only machines, large models (7B+) with 27 tools can be slow (~9 tok/s). Consider smaller models like qwen2.5:1.5b for faster responses.
+- **Chat Persistence**: Messages are not saved between sessions
+- **Voice Input**: Not implemented (future feature)
 
 ## Testing
 
@@ -290,9 +296,9 @@ Show main app or loading screen
 - [x] MCP client can initialize connection
 - [x] Tool discovery works (27 tools listed)
 
-**Pending (Windows Testing Required)**
-- [ ] Full end-to-end tool calling
-- [ ] Document creation via chat
+**Week 4 ✅**
+- [x] Full end-to-end tool calling
+- [x] Document creation via chat
 - [ ] Presentation creation via chat
 - [ ] Text formatting via chat
 
@@ -368,6 +374,6 @@ See [../libre-office-mcp/LICENSE](../libre-office-mcp/LICENSE)
 
 ---
 
-**Last Updated**: December 29, 2024
-**Status**: Week 2 Complete - Chat UI + MCP Infrastructure Working
+**Last Updated**: February 10, 2026
+**Status**: Week 4 Complete - End-to-end tool calling working on Windows
 **Target Platform**: Windows (Development on macOS)

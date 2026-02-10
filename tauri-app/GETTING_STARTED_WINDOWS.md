@@ -103,24 +103,26 @@ Ollama runs the AI models locally on your computer.
 **Download an AI model:**
 Open Command Prompt and run:
 ```cmd
-ollama pull phi3
+ollama pull qwen2.5-coder:7b
 ```
 
-This downloads the phi3 model (~2.3 GB). Wait for it to complete.
+This downloads the qwen2.5-coder model (~4.7 GB). Wait for it to complete. This model supports tool calling which is required for document operations.
 
 **Verify installation:**
 ```cmd
 ollama list
 ```
 
-You should see `phi3:latest` in the list.
+You should see `qwen2.5-coder:7b` in the list.
 
 **Alternative models** (optional):
 ```cmd
-ollama pull llama2          # ~3.8 GB, good general purpose
-ollama pull qwen2.5-coder   # ~4.7 GB, best for coding tasks
-ollama pull deepseek-coder  # ~3.8 GB, alternative coding model
+ollama pull qwen2.5:1.5b    # ~1 GB, fast on CPU, supports tool calling
+ollama pull phi3             # ~2.3 GB, general purpose
+ollama pull llama2           # ~3.8 GB, good general purpose
 ```
+
+**Note:** For document creation features, you need a model that supports Ollama's tool calling format. qwen2.5-coder and qwen2.5 are verified to work.
 
 ### 1.5 Install LibreOffice
 
@@ -228,7 +230,7 @@ npm run tauri dev
 1. Click the settings button (⚙️) in the top-right corner
 2. Verify the settings:
    - **Ollama URL**: Should be `http://localhost:11434`
-   - **Selected Model**: Choose `phi3:latest` (or another model you downloaded)
+   - **Selected Model**: Choose `qwen2.5-coder:7b` (or another model you downloaded)
    - **Python Path**: Should auto-detect (e.g., `C:\Users\<YourUsername>\AppData\Local\Programs\Python\Python312\python.exe`)
    - **Documents Path**: Default is `C:\Users\<YourUsername>\Documents`
    - **Theme**: Dark (default)
@@ -452,10 +454,10 @@ Insert a table with last quarter's sales data
 ### Advanced Usage
 
 **Model Selection:**
-- **phi3**: Fast, efficient, good for general use (2.3 GB)
-- **llama2**: Larger, more capable (3.8 GB)
-- **qwen2.5-coder**: Best for code/technical documents (4.7 GB)
-- **deepseek-coder**: Alternative coding model (3.8 GB)
+- **qwen2.5:1.5b**: Fast, supports tool calling, great for CPU-only machines (1 GB)
+- **qwen2.5-coder:7b**: Best for document operations, supports tool calling (4.7 GB)
+- **phi3**: General purpose, fast (2.3 GB)
+- **llama2**: Larger, more capable for general chat (3.8 GB)
 
 Download more models:
 ```cmd
@@ -580,7 +582,7 @@ A: Everything is free and open source. No subscriptions or fees.
 A: Yes, once everything is installed, it works completely offline.
 
 **Q: Which AI model should I use?**
-A: Start with `phi3` (fastest, smallest). Try `llama2` for better quality.
+A: Start with `qwen2.5-coder:7b` for best document tool support. On slower machines, try `qwen2.5:1.5b` (faster but less capable).
 
 **Q: Can I use Microsoft Office files?**
 A: Yes! LibreOffice supports .docx, .pptx, .xlsx, etc.
@@ -629,8 +631,8 @@ A: Yes, set custom Documents path in settings (⚙️).
 
 ---
 
-**Last Updated**: 2025-01-03
-**Version**: Week 3 - Settings UI Complete
+**Last Updated**: 2026-02-10
+**Version**: Week 4 - End-to-end tool calling working
 **Support**: Create an issue on GitHub for help
 
 ---
