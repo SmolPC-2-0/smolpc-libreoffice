@@ -13,10 +13,15 @@ class ChatStore {
   messageCount = $derived(this.messages.length);
 
   addMessage(message: Omit<ChatMessage, 'timestamp'>) {
-    this.messages.push({
-      ...message,
+    const msg: ChatMessage = {
+      role: message.role,
+      content: message.content,
       timestamp: new Date()
-    });
+    };
+    if (message.toolCalls) {
+      msg.toolCalls = message.toolCalls;
+    }
+    this.messages.push(msg);
   }
 
   clearMessages() {
@@ -55,7 +60,11 @@ class ChatStore {
 
     // Add conversation history
     for (const msg of this.messages) {
-      ollamaMessages.push({ role: msg.role, content: msg.content });
+      const ollamaMsg: OllamaChatMessage = { role: msg.role, content: msg.content };
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        ollamaMsg.tool_calls = msg.toolCalls;
+      }
+      ollamaMessages.push(ollamaMsg);
     }
 
     try {
@@ -120,10 +129,11 @@ class ChatStore {
     const assistantMessage = this.currentStreamingMessage;
     this.currentStreamingMessage = '';
 
-    // Add assistant message
+    // Add assistant message (include tool_calls if present so Ollama sees them in history)
     this.addMessage({
       role: 'assistant',
-      content: assistantMessage
+      content: assistantMessage,
+      toolCalls: toolCalls
     });
 
     // If there are tool calls, execute them
