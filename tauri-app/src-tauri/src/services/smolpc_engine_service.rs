@@ -1,10 +1,11 @@
 use crate::models::ollama::{ChatMessage, Model, Tool, ToolCall};
 use anyhow::Result;
 use futures_util::StreamExt;
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
@@ -23,7 +24,7 @@ pub struct EngineStreamChunk {
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct EngineMessage {
     role: String,
     content: String,
@@ -47,6 +48,17 @@ struct EngineGeneratePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
     params: EngineGenerationParams,
+}
+
+#[derive(Debug, Serialize)]
+struct EngineSharedChatPayload {
+    model: String,
+    messages: Vec<EngineMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +169,7 @@ impl ToolCallAccumulator {
 pub struct SmolpcEngineService {
     client: Client,
     base_url: String,
+    token: Option<String>,
 }
 
 impl SmolpcEngineService {
@@ -168,16 +181,24 @@ impl SmolpcEngineService {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             base_url,
+            token: discover_engine_token(),
         }
     }
 
     pub async fn is_running(&self) -> bool {
-        let url = format!("{}/health", self.base_url.trim_end_matches('/'));
-        self.client
-            .get(url)
+        let shared_url = format!("{}/engine/health", self.base_url.trim_end_matches('/'));
+        match self.with_auth(self.client.get(&shared_url)).send().await {
+            Ok(response) if response.status().is_success() => return true,
+            Ok(response) if should_fallback_to_legacy(response.status()) => {}
+            Ok(_) => return false,
+            Err(_) => {}
+        }
+
+        let legacy_url = format!("{}/health", self.base_url.trim_end_matches('/'));
+        self.with_auth(self.client.get(&legacy_url))
             .send()
             .await
-            .map(|resp| resp.status().is_success())
+            .map(|response| response.status().is_success())
             .unwrap_or(false)
     }
 
@@ -206,18 +227,58 @@ impl SmolpcEngineService {
             },
         };
 
-        let url = format!("{}/generate", self.base_url.trim_end_matches('/'));
-        let response = self.client.post(&url).json(&payload).send().await?;
+        let shared_payload = EngineSharedChatPayload {
+            model: payload.model.clone(),
+            messages: payload.messages.clone(),
+            stream: true,
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+        };
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "smolpc-engine generate request failed: {} - {}",
-                status,
-                body
-            );
-        }
+        let shared_url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
+        let legacy_url = format!("{}/generate", self.base_url.trim_end_matches('/'));
+
+        let response = match self
+            .with_auth(self.client.post(&shared_url).json(&shared_payload))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) if should_fallback_to_legacy(response.status()) => {
+                let fallback = self
+                    .with_auth(self.client.post(&legacy_url).json(&payload))
+                    .send()
+                    .await?;
+                if !fallback.status().is_success() {
+                    let status = fallback.status();
+                    let body = fallback.text().await.unwrap_or_default();
+                    anyhow::bail!(
+                        "smolpc-engine fallback generate request failed: {} - {}",
+                        status,
+                        body
+                    );
+                }
+                fallback
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                    anyhow::bail!(
+                        "smolpc-engine auth failed: {} - {}. Ensure SMOLPC_ENGINE_TOKEN or %LOCALAPPDATA%\\SmolPC\\engine-runtime\\engine-token.txt is available.",
+                        status,
+                        body
+                    );
+                }
+                anyhow::bail!("smolpc-engine chat request failed: {} - {}", status, body);
+            }
+            Err(e) => {
+                anyhow::bail!("smolpc-engine chat request failed: {}", e);
+            }
+        };
 
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -316,22 +377,100 @@ impl SmolpcEngineService {
     }
 
     pub async fn list_models(&self) -> Result<Vec<Model>> {
-        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
-        let response = self.client.get(url).send().await?;
+        let shared_url = format!("{}/v1/models", self.base_url.trim_end_matches('/'));
+        let legacy_url = format!("{}/models", self.base_url.trim_end_matches('/'));
 
-        if !response.status().is_success() {
-            anyhow::bail!("smolpc-engine models request failed: {}", response.status());
-        }
+        let response = match self.with_auth(self.client.get(&shared_url)).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) if should_fallback_to_legacy(response.status()) => {
+                let fallback = self.with_auth(self.client.get(&legacy_url)).send().await?;
+                if !fallback.status().is_success() {
+                    anyhow::bail!("smolpc-engine models request failed: {}", fallback.status());
+                }
+                fallback
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                    anyhow::bail!(
+                        "smolpc-engine auth failed: {} - {}. Ensure SMOLPC_ENGINE_TOKEN or %LOCALAPPDATA%\\SmolPC\\engine-runtime\\engine-token.txt is available.",
+                        status,
+                        body
+                    );
+                }
+                anyhow::bail!("smolpc-engine models request failed: {} - {}", status, body);
+            }
+            Err(e) => {
+                anyhow::bail!("smolpc-engine models request failed: {}", e);
+            }
+        };
 
         let value = response.json::<Value>().await?;
         let models = parse_models_from_value(&value);
 
         if models.is_empty() {
-            anyhow::bail!("smolpc-engine /models returned no usable model entries");
+            anyhow::bail!("smolpc-engine models response returned no usable model entries");
         }
 
         Ok(models)
     }
+
+    fn with_auth(&self, builder: RequestBuilder) -> RequestBuilder {
+        match self
+            .token
+            .as_ref()
+            .map(|token| token.trim())
+            .filter(|token| !token.is_empty())
+        {
+            Some(token) => builder.bearer_auth(token),
+            None => builder,
+        }
+    }
+}
+
+fn discover_engine_token() -> Option<String> {
+    if let Some(token) = std::env::var("SMOLPC_ENGINE_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+    {
+        return Some(token);
+    }
+
+    let token_path = default_engine_token_path()?;
+    let token = std::fs::read_to_string(token_path).ok()?;
+    let trimmed = token.trim();
+
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn default_engine_token_path() -> Option<PathBuf> {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        return Some(
+            PathBuf::from(local_app_data)
+                .join("SmolPC")
+                .join("engine-runtime")
+                .join("engine-token.txt"),
+        );
+    }
+
+    dirs::data_local_dir().map(|path| {
+        path.join("SmolPC")
+            .join("engine-runtime")
+            .join("engine-token.txt")
+    })
+}
+
+fn should_fallback_to_legacy(status: StatusCode) -> bool {
+    matches!(
+        status,
+        StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED | StatusCode::NOT_IMPLEMENTED
+    )
 }
 
 fn flatten_prompt(messages: &[ChatMessage]) -> String {
@@ -786,5 +925,20 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].name, "model-x");
         assert_eq!(models[1].name, "model-y");
+    }
+
+    #[test]
+    fn parses_models_from_openai_data_array() {
+        let value = serde_json::json!({
+            "data": [
+                {"id": "qwen3-4b-instruct-2507"},
+                {"id": "qwen3-8b-instruct"}
+            ]
+        });
+
+        let models = parse_models_from_value(&value);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].name, "qwen3-4b-instruct-2507");
+        assert_eq!(models[1].name, "qwen3-8b-instruct");
     }
 }

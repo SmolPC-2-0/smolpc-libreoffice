@@ -1,117 +1,116 @@
-# SmolPC Engine Testing on Windows
+# SmolPC Shared Engine Testing on Windows
 
-Use this guide to validate the `smolpc_engine` integration on a Windows machine.
+Use this guide to validate LibreOffice integration against `smolpc-codehelper` branch `codex/shared-engine-v1`.
 
-## 1. Get the Branch
-
-After the feature branch is pushed:
-
-```cmd
-cd C:\Users\%USERNAME%\Documents
-git clone https://github.com/SmolPC-2-0/smolpc-libreoffice.git
-cd smolpc-libreoffice
-git fetch origin
-git checkout codex/libreoffice-engine-migration-start
-```
-
-If you already have the repo:
+## 1. Get the LibreOffice Branch
 
 ```cmd
 cd C:\path\to\smolpc-libreoffice
 git fetch origin
-git checkout codex/libreoffice-engine-migration-start
-git pull --ff-only origin codex/libreoffice-engine-migration-start
+git checkout -B codex/libreoffice-engine-migration-start --track origin/codex/libreoffice-engine-migration-start
+cd tauri-app
+npm install
 ```
 
-## 2. Install/Verify Prerequisites
-
-From `tauri-app`:
+## 2. Get and Build the Engine Host (CodeHelper)
 
 ```cmd
+cd C:\path\to\smolpc-codehelper
+git fetch origin
+git checkout -B codex/shared-engine-v1 --track origin/codex/shared-engine-v1
 npm install
-cd src-tauri
-cargo check
-cd ..
+cargo build -p smolpc-engine-host
 ```
 
-You still need:
-- Python 3.12+
-- LibreOffice
-- MCP Python deps in `resources\mcp_server\.venv`
+## 3. Prepare Engine Token and Start Daemon
 
-## 3. Start the Custom Engine Daemon
-
-Start your engine daemon (the command depends on your engine project) and ensure it listens on `http://localhost:11435` (or your chosen URL).
-
-Quick endpoint checks from PowerShell:
+PowerShell:
 
 ```powershell
-Invoke-WebRequest -Uri "http://localhost:11435/health" -UseBasicParsing
-Invoke-WebRequest -Uri "http://localhost:11435/models" -UseBasicParsing
+$runtimeDir = Join-Path $env:LOCALAPPDATA "SmolPC\engine-runtime"
+New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
+
+$tokenPath = Join-Path $runtimeDir "engine-token.txt"
+if (!(Test-Path $tokenPath)) {
+  $token = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 48 | ForEach-Object {[char]$_})
+  Set-Content -Path $tokenPath -Value $token
+}
+
+$env:SMOLPC_ENGINE_TOKEN = (Get-Content $tokenPath -Raw).Trim()
+
+cd C:\path\to\smolpc-codehelper
+cargo run -p smolpc-engine-host -- --port 19432 --data-dir "$env:LOCALAPPDATA\SmolPC\engine" --app-version dev
 ```
 
-Minimum expected behavior:
-- `GET /health` returns HTTP `200`.
-- `GET /models` should return a usable model list (array/object). If not implemented, you can still manually set model ID in app settings.
-- `POST /generate` streams newline-delimited JSON or SSE (`data: ...` lines).
+Keep that terminal open.
 
-## 4. Run the App
+## 4. Verify Engine Endpoints
+
+In a second PowerShell window:
+
+```powershell
+$token = (Get-Content "$env:LOCALAPPDATA\SmolPC\engine-runtime\engine-token.txt" -Raw).Trim()
+$headers = @{ Authorization = "Bearer $token" }
+
+Invoke-RestMethod -Headers $headers http://127.0.0.1:19432/engine/health
+Invoke-RestMethod -Headers $headers http://127.0.0.1:19432/v1/models
+```
+
+Expected:
+- `/engine/health` returns `{ ok: true }`
+- `/v1/models` returns model data
+
+## 5. Run LibreOffice App Against Shared Engine
 
 ```cmd
+cd C:\path\to\smolpc-libreoffice\tauri-app
 npm run tauri dev
 ```
 
 In Settings:
-1. Provider: `SmolPC Engine (Preview)`
-2. Engine URL: `http://localhost:11435` (or your URL)
-3. Model ID: select from dropdown or type manually
-4. Save Settings
+1. Provider: `SmolPC Engine (Shared v1)`
+2. Engine URL: `http://127.0.0.1:19432`
+3. Model ID: choose from dropdown or set manually (example: `qwen3-4b-instruct-2507`)
+4. Save
 
-The loading screen should show:
+Expected loading statuses:
 - Python: ready
 - SmolPC Engine: ready
 - MCP Server: running
 
-## 5. Smoke Tests
-
-Run these prompts in order:
+## 6. Smoke Test Prompts
 
 1. `What tools do you have available for LibreOffice?`
 2. `Create a document called "engine-smoke-test" in my Documents folder.`
 3. `Add a heading "Engine Integration Test" to engine-smoke-test.`
-4. `Add a paragraph saying "This document was created through smolpc-engine tool calling."`
+4. `Add a paragraph saying "This document was created through shared-engine-v1 tool calling."`
 
 Expected:
-- Assistant may stream normal text and/or tool-calling metadata.
-- Tool messages should appear in chat with execution results.
-- `.odt` file is created and updated correctly.
+- Assistant streams content.
+- Tool messages appear with execution results.
+- Document file exists and is updated.
 
-## 6. Tool-Calling Compatibility Contract
+## 7. API Contract Used by LibreOffice Branch
 
-The app sends `/generate` payloads including:
-- `model`
-- `prompt`
-- `messages` (role/content history)
-- `tools` and `tool_choice: "auto"` when tools are available
-- `params.temperature` and `params.max_tokens`
+Primary (shared-engine-v1):
+- `GET /engine/health` (Bearer token)
+- `GET /v1/models` (Bearer token)
+- `POST /v1/chat/completions` with `stream: true` (Bearer token)
 
-The app accepts streamed tool calls in these forms:
-- Top-level `tool_calls`
-- `choices[0].delta.tool_calls`
-- `choices[0].message.tool_calls`
-- Partial/delta tool arguments split across chunks (now reassembled before execution)
+Compatibility fallback:
+- `/health`, `/models`, `/generate` (legacy preview engines)
 
-Fallback supported:
-- If native tool calls are not emitted, assistant output can return strict JSON:
+Tool-call handling:
+- Native `tool_calls` parsing when present
+- OpenAI-style delta tool-call argument assembly
+- JSON fallback from assistant text:
   `{"tool_calls":[{"function":{"name":"<tool_name>","arguments":{...}}}]}`
 
-## 7. Capture Results
+## 8. Capture Failures
 
-If a test fails, capture:
-1. Prompt used
-2. Chat output
-3. Terminal logs (`npm run tauri dev` window)
-4. Whether document/tool side effect happened
-5. Engine endpoint URL + model ID
-
-This is enough to isolate whether the issue is parser shape, engine protocol mismatch, or MCP/runtime behavior.
+When a step fails, capture:
+1. Prompt and observed chat output
+2. `npm run tauri dev` logs
+3. Engine host terminal logs
+4. Engine URL and model ID
+5. Result of `/engine/status` (with bearer token)

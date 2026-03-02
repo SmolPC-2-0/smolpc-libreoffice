@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ai_provider: 'ollama',
   ollama_url: 'http://localhost:11434',
   selected_model: 'qwen2.5-coder:7b',
-  smolpc_engine_url: 'http://localhost:11435',
+  smolpc_engine_url: 'http://127.0.0.1:19432',
   python_path: 'python',
   documents_path: '~/Documents',
   libreoffice_path: null,

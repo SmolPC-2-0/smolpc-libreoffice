@@ -17,7 +17,7 @@ LibreOffice AI is a desktop application that lets you create and edit LibreOffic
 - "Format the word 'Important' in bold red"
 
 If you are testing the custom engine provider instead of Ollama, use
-[SMOLPC_ENGINE_WINDOWS_TESTING.md](SMOLPC_ENGINE_WINDOWS_TESTING.md) after finishing prerequisite setup.
+[SMOLPC_ENGINE_WINDOWS_TESTING.md](SMOLPC_ENGINE_WINDOWS_TESTING.md) after finishing prerequisite setup (targets `smolpc-codehelper` branch `codex/shared-engine-v1`).
 
 ---
 

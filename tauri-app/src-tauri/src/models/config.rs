@@ -22,7 +22,7 @@ fn default_selected_model() -> String {
 }
 
 fn default_smolpc_engine_url() -> String {
-    "http://localhost:11435".to_string()
+    "http://127.0.0.1:19432".to_string()
 }
 
 fn default_python_path() -> String {

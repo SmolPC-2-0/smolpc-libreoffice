@@ -13,7 +13,7 @@ Initial engine migration work has started in `tauri-app`:
 - Added provider-aware runtime config (`ai_provider`, `smolpc_engine_url`) with backward-compatible defaults
 - Added unified AI stream command (`chat_stream_ai`) that routes to:
   - `OllamaService` (existing full tool-calling path)
-  - `SmolpcEngineService` (preview path using `/health` + `/generate`)
+  - `SmolpcEngineService` (shared-engine-v1 path using `/engine/health` + `/v1/chat/completions`)
 - Updated frontend stores/components to use provider-agnostic stream events (`ai-stream-chunk`, `ai-stream-error`)
 - Updated dependency initialization to validate selected provider (Ollama or smolpc-engine)
 - Updated settings UI for provider selection and engine URL configuration
@@ -21,18 +21,22 @@ Initial engine migration work has started in `tauri-app`:
   - stream payload tool call extraction (`tool_calls` where available)
   - fallback JSON tool call extraction from assistant output for MCP execution
 - Added explicit smolpc-engine tool request contract in generation payload:
-  - includes `tools` and `tool_choice: auto` fields for compatible runtimes
+  - shared-engine-v1 OpenAI-compatible payload (`messages`, `stream`, `max_tokens`, `temperature`)
+  - legacy fallback payload still supported for compatibility (`tools` + `tool_choice: auto`)
 - Added native streamed tool-call delta handling in `SmolpcEngineService`:
   - accumulates split `tool_calls[].function.arguments` fragments across stream chunks
   - finalizes merged tool calls on stream completion before MCP execution
   - covered with parser/accumulator unit tests for partial and invalid payloads
-- Added provider-agnostic model discovery command (`list_ai_models`) with flexible parsing for smolpc-engine `/models` responses
+- Added provider-agnostic model discovery command (`list_ai_models`) with shared-engine-v1 `/v1/models` primary path and legacy `/models` fallback
+- Added shared-engine-v1 auth token auto-discovery:
+  - `SMOLPC_ENGINE_TOKEN` env var
+  - `%LOCALAPPDATA%\\SmolPC\\engine-runtime\\engine-token.txt` (or platform-equivalent local data path)
 - Saving settings now re-runs dependency and MCP initialization with updated provider settings (no app restart required)
 - Added tool-call safety guards (per-response cap + recursion-depth cap + unknown tool filtering)
 
 Current limitation in this phase:
 
-- End-to-end document workflows on `smolpc_engine` still need full Windows validation against real daemon/runtime variants.
+- End-to-end document workflows on `smolpc_engine` still need full Windows validation against the real `codex/shared-engine-v1` host runtime.
 
 ---
 

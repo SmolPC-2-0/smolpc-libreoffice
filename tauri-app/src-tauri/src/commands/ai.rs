@@ -47,7 +47,7 @@ pub async fn list_ai_models(
         }
         AiProvider::SmolpcEngine => {
             let service = SmolpcEngineService::new(
-                smolpc_engine_url.unwrap_or_else(|| "http://localhost:11435".to_string()),
+                smolpc_engine_url.unwrap_or_else(|| "http://127.0.0.1:19432".to_string()),
             );
             match service.list_models().await {
                 Ok(models) => Ok(ListAiModelsResponse { models }),
@@ -118,7 +118,7 @@ async fn start_smolpc_engine_stream(
 ) -> Result<(), String> {
     let engine_url = request
         .smolpc_engine_url
-        .unwrap_or_else(|| "http://localhost:11435".to_string());
+        .unwrap_or_else(|| "http://127.0.0.1:19432".to_string());
 
     tokio::spawn(async move {
         let service = SmolpcEngineService::new(engine_url);

@@ -39,7 +39,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 **Week 5: 🚧 IN PROGRESS (Engine Migration Kickoff)**
 - Provider-aware AI architecture (`ollama` or `smolpc_engine`)
 - New provider-agnostic chat streaming command (`chat_stream_ai`)
-- `smolpc-engine` preview service integration (`/health`, `/generate`)
+- `smolpc-engine` shared-engine-v1 integration (`/engine/health`, `/v1/chat/completions`)
 - Native smolpc-engine tool-call delta assembly for streamed partial arguments
 - Provider-aware dependency checks and MCP startup conditions
 - Settings updated with AI provider + engine URL
@@ -84,7 +84,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 ### Integration
 - **Python MCP Server** (bundled as resources)
 - **Ollama** for local AI inference (full tool-calling support)
-- **smolpc-engine** daemon (preview integration path)
+- **smolpc-engine** shared host API (preferred: `codex/shared-engine-v1`)
 - **LibreOffice** via Python UNO bridge
 
 ## Prerequisites
@@ -94,7 +94,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - **Python** 3.12+
 - **One AI provider**:
   - **Ollama** (running on localhost:11434), or
-  - **smolpc-engine daemon** (default URL: localhost:11435)
+  - **smolpc-engine daemon** (shared-engine-v1 default URL: `127.0.0.1:19432`)
 - **LibreOffice** (optional, for document features)
 
 ## Quick Start
@@ -200,7 +200,7 @@ Settings are stored in `~/.config/libreoffice-ai/settings.json`:
   "ai_provider": "ollama",
   "ollama_url": "http://localhost:11434",
   "selected_model": "qwen2.5:7b",
-  "smolpc_engine_url": "http://localhost:11435",
+  "smolpc_engine_url": "http://127.0.0.1:19432",
   "python_path": "python3",
   "documents_path": "~/Documents",
   "libreoffice_path": null,
@@ -214,7 +214,7 @@ Settings are stored in `~/.config/libreoffice-ai/settings.json`:
 1. **Python**: Executes `python3 --version`
 2. **Selected AI provider**:
    - Ollama: HTTP GET to `/api/version`
-   - smolpc-engine: HTTP GET to `/health`
+   - smolpc-engine: HTTP GET to `/engine/health` (Bearer token required by shared-engine-v1)
 3. **LibreOffice**: Checks filesystem paths (cross-platform)
 
 ### MCP Server Integration
@@ -247,7 +247,7 @@ Show main app or loading screen
 1. Frontend sends `chat_stream_ai` request with provider + URLs
 2. Rust command dispatches:
    - `ollama` → `OllamaService` stream + tool call chunks
-   - `smolpc_engine` → `SmolpcEngineService` stream (preview, sends tools/tool_choice contract, parses tool call payloads, and reassembles streamed partial tool arguments)
+   - `smolpc_engine` → `SmolpcEngineService` stream (shared-engine-v1 primary path: `/v1/chat/completions`, with legacy fallback)
 3. Frontend consumes unified `ai-stream-chunk` / `ai-stream-error` events
 4. MCP tool execution runs on detected `tool_calls` for both providers
 5. smolpc-engine path additionally supports JSON fallback extraction from assistant text
@@ -298,7 +298,8 @@ Show main app or loading screen
 **Engine Migration Kickoff**
 - Provider selection added to settings (`ollama` / `smolpc_engine`)
 - Unified AI stream command implemented (`chat_stream_ai`)
-- smolpc-engine daemon endpoints integrated for health + generation
+- smolpc-engine shared host endpoints integrated (`/engine/health`, `/v1/models`, `/v1/chat/completions`)
+- Auto-detects engine bearer token via `SMOLPC_ENGINE_TOKEN` or `%LOCALAPPDATA%\SmolPC\engine-runtime\engine-token.txt`
 - Added native tool-call delta accumulation to support split streamed function arguments
 - Backend config save now updates in-memory app state
 - smolpc-engine path can trigger MCP tool execution via stream payload or JSON fallback format
@@ -320,7 +321,7 @@ Show main app or loading screen
 ### General
 - **Model Compatibility**: Not all Ollama models support function calling. Tested working models: qwen2.5-coder:7b, qwen2.5:1.5b. Models must support Ollama's tool calling format.
 - **CPU Performance**: On CPU-only machines, large models (7B+) with 27 tools can be slow (~9 tok/s). Consider smaller models like qwen2.5:1.5b for faster responses.
-- **smolpc-engine Preview**: Native streamed tool-call payloads (including partial argument deltas) are supported, but non-standard runtimes may still require strict JSON fallback output.
+- **smolpc-engine Compatibility**: shared-engine-v1 OpenAI-style streaming is primary. Non-standard runtimes may still require strict JSON fallback output for tool calls.
 - **Chat Persistence**: Messages are not saved between sessions
 - **Voice Input**: Not implemented (future feature)
 - **Tracked Engineering Debt**: See [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) for prioritized follow-up issues from code review.

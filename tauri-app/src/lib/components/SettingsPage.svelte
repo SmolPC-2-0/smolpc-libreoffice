@@ -61,7 +61,7 @@
           onchange={async (e) => handleProviderChange(e.currentTarget.value as 'ollama' | 'smolpc_engine')}
         >
           <option value="ollama">Ollama</option>
-          <option value="smolpc_engine">SmolPC Engine (Preview)</option>
+          <option value="smolpc_engine">SmolPC Engine (Shared v1)</option>
         </select>
         <span class="setting-description">Select the AI runtime used for chat responses</span>
       </div>
@@ -108,10 +108,10 @@
             type="text"
             value={settingsStore.settings.smolpc_engine_url}
             oninput={(e) => settingsStore.updateSetting('smolpc_engine_url', e.currentTarget.value)}
-            placeholder="http://localhost:11435"
+            placeholder="http://127.0.0.1:19432"
           />
           <span class="setting-description">
-            URL for smolpc-engine daemon (`/health`, `/generate`)
+            URL for shared smolpc-engine host (`/engine/health`, `/v1/chat/completions`)
           </span>
         </div>
 
@@ -136,7 +136,7 @@
               type="text"
               value={settingsStore.settings.selected_model}
               oninput={(e) => settingsStore.updateSetting('selected_model', e.currentTarget.value)}
-              placeholder="qwen2.5-coder-1.5b-int4"
+              placeholder="qwen3-4b-instruct-2507"
             />
             <span class="setting-description">Model identifier expected by smolpc-engine</span>
           {/if}

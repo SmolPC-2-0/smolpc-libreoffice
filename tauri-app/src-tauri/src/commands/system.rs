@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,19 +73,77 @@ pub async fn check_ollama(ollama_url: Option<String>) -> Result<DependencyStatus
 
 #[tauri::command]
 pub async fn check_smolpc_engine(engine_url: Option<String>) -> Result<DependencyStatus, String> {
-    let base_url = engine_url.unwrap_or_else(|| "http://localhost:11435".to_string());
-    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let base_url = engine_url.unwrap_or_else(|| "http://127.0.0.1:19432".to_string());
+    let token = discover_engine_token();
+    let client = reqwest::Client::new();
 
-    match reqwest::get(health_url).await {
+    let shared_health_url = format!("{}/engine/health", base_url.trim_end_matches('/'));
+    let mut shared_request = client.get(&shared_health_url);
+    if let Some(token) = token.as_ref() {
+        shared_request = shared_request.bearer_auth(token);
+    }
+
+    match shared_request.send().await {
         Ok(response) if response.status().is_success() => {
-            let version = response.text().await.unwrap_or_default();
+            let body = response.text().await.unwrap_or_default();
+            return Ok(DependencyStatus {
+                name: "SmolPC Engine".to_string(),
+                installed: true,
+                version: if body.trim().is_empty() {
+                    Some("shared-engine-v1".to_string())
+                } else {
+                    Some(format!("shared-engine-v1 {}", body.trim()))
+                },
+                error_message: None,
+            });
+        }
+        Ok(response)
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED
+                || response.status() == reqwest::StatusCode::FORBIDDEN =>
+        {
+            return Ok(DependencyStatus {
+                name: "SmolPC Engine".to_string(),
+                installed: false,
+                version: None,
+                error_message: Some(
+                    "smolpc-engine host requires bearer token. Set SMOLPC_ENGINE_TOKEN or ensure %LOCALAPPDATA%\\SmolPC\\engine-runtime\\engine-token.txt exists."
+                        .to_string(),
+                ),
+            });
+        }
+        Ok(response)
+            if response.status() != reqwest::StatusCode::NOT_FOUND
+                && response.status() != reqwest::StatusCode::METHOD_NOT_ALLOWED =>
+        {
+            return Ok(DependencyStatus {
+                name: "SmolPC Engine".to_string(),
+                installed: false,
+                version: None,
+                error_message: Some(format!(
+                    "smolpc-engine health check failed at /engine/health: {}",
+                    response.status()
+                )),
+            });
+        }
+        _ => {}
+    }
+
+    let legacy_health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let mut legacy_request = client.get(&legacy_health_url);
+    if let Some(token) = token.as_ref() {
+        legacy_request = legacy_request.bearer_auth(token);
+    }
+
+    match legacy_request.send().await {
+        Ok(response) if response.status().is_success() => {
+            let body = response.text().await.unwrap_or_default();
             Ok(DependencyStatus {
                 name: "SmolPC Engine".to_string(),
                 installed: true,
-                version: if version.trim().is_empty() {
-                    Some("healthy".to_string())
+                version: if body.trim().is_empty() {
+                    Some("legacy-preview".to_string())
                 } else {
-                    Some(version)
+                    Some(format!("legacy-preview {}", body.trim()))
                 },
                 error_message: None,
             })
@@ -94,11 +153,47 @@ pub async fn check_smolpc_engine(engine_url: Option<String>) -> Result<Dependenc
             installed: false,
             version: None,
             error_message: Some(
-                "smolpc-engine daemon not running. Start engine daemon or switch provider to Ollama."
-                    .to_string(),
+                "smolpc-engine daemon not running. Expected shared-engine-v1 at /engine/health (default http://127.0.0.1:19432).".to_string(),
             ),
         }),
     }
+}
+
+fn discover_engine_token() -> Option<String> {
+    if let Some(token) = std::env::var("SMOLPC_ENGINE_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+    {
+        return Some(token);
+    }
+
+    let token_path = default_engine_token_path()?;
+    let token = std::fs::read_to_string(token_path).ok()?;
+    let trimmed = token.trim();
+
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn default_engine_token_path() -> Option<PathBuf> {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        return Some(
+            PathBuf::from(local_app_data)
+                .join("SmolPC")
+                .join("engine-runtime")
+                .join("engine-token.txt"),
+        );
+    }
+
+    dirs::data_local_dir().map(|path| {
+        path.join("SmolPC")
+            .join("engine-runtime")
+            .join("engine-token.txt")
+    })
 }
 
 #[tauri::command]
