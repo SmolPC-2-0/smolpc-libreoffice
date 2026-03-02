@@ -6,7 +6,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 
 **Week 1: ✅ COMPLETED**
 - Tauri 2.0 + Svelte 5 + Rust project structure
-- Dependency detection (Python, Ollama, LibreOffice)
+- Dependency detection (Python, selected AI provider, LibreOffice)
 - MCP server integration with process management
 - Loading screen with real-time status indicators
 - Dark-themed UI with system status display
@@ -36,10 +36,17 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - Ollama tool parameter validation fix
 - Full document creation pipeline working
 
-**Week 5+: Pending**
-- Enhanced chat features (history, export)
-- Document management UI
-- Voice input integration (Whisper)
+**Week 5: 🚧 IN PROGRESS (Engine Migration Kickoff)**
+- Provider-aware AI architecture (`ollama` or `smolpc_engine`)
+- New provider-agnostic chat streaming command (`chat_stream_ai`)
+- `smolpc-engine` preview service integration (`/health`, `/generate`)
+- Native smolpc-engine tool-call delta assembly for streamed partial arguments
+- Provider-aware dependency checks and MCP startup conditions
+- Settings updated with AI provider + engine URL
+- Added fallback JSON tool-call extraction path for smolpc-engine responses
+- Added provider-agnostic model listing command (`list_ai_models`)
+- Settings save now re-initializes dependency/provider status in-app (no restart required)
+- Added tool-chain safety guards (max tool calls per response + max tool recursion depth)
 - See [MIGRATION_PLAN.md](../MIGRATION_PLAN.md) for full roadmap
 
 ---
@@ -52,6 +59,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 
 - [README.md](README.md) - project overview and quick start
 - [GETTING_STARTED_WINDOWS.md](GETTING_STARTED_WINDOWS.md) - full Windows setup guide
+- [SMOLPC_ENGINE_WINDOWS_TESTING.md](SMOLPC_ENGINE_WINDOWS_TESTING.md) - Windows validation steps for custom engine provider
 - [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) - tracked engineering debt and follow-up issues
 - [MIGRATION_PLAN.md](../MIGRATION_PLAN.md) - long-term migration roadmap
 - [MACOS_TESTING.md](../MACOS_TESTING.md) - macOS dev workflow notes
@@ -75,7 +83,8 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 
 ### Integration
 - **Python MCP Server** (bundled as resources)
-- **Ollama** for local AI inference
+- **Ollama** for local AI inference (full tool-calling support)
+- **smolpc-engine** daemon (preview integration path)
 - **LibreOffice** via Python UNO bridge
 
 ## Prerequisites
@@ -83,7 +92,9 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - **Node.js** 18+ and npm
 - **Rust** 1.70+
 - **Python** 3.12+
-- **Ollama** (running on localhost:11434)
+- **One AI provider**:
+  - **Ollama** (running on localhost:11434), or
+  - **smolpc-engine daemon** (default URL: localhost:11435)
 - **LibreOffice** (optional, for document features)
 
 ## Quick Start
@@ -109,7 +120,7 @@ npm run tauri dev
 See [MACOS_TESTING.md](../MACOS_TESTING.md) for the manual setup required on macOS (LibreOffice headless, helper macro).
 
 The app will:
-1. Check for Python, Ollama, and LibreOffice
+1. Check for Python, selected AI provider, and LibreOffice
 2. Show loading screen with status indicators
 3. Attempt to start MCP server if dependencies are met
 4. Display chat interface when ready
@@ -150,6 +161,7 @@ tauri-app/
 │   ├── src/
 │   │   ├── commands/
 │   │   │   ├── system.rs             # check_python, check_ollama, check_libreoffice
+│   │   │   ├── ai.rs                 # NEW: provider-aware chat_stream_ai
 │   │   │   ├── mcp.rs                # start_mcp_server, list_mcp_tools, call_mcp_tool
 │   │   │   └── ollama.rs             # NEW: chat_stream, list_ollama_models
 │   │   ├── models/
@@ -160,6 +172,7 @@ tauri-app/
 │   │   │   ├── config_service.rs     # Settings persistence
 │   │   │   ├── process_manager.rs    # Process lifecycle
 │   │   │   ├── ollama_service.rs     # NEW: HTTP streaming
+│   │   │   ├── smolpc_engine_service.rs # NEW: engine daemon streaming
 │   │   │   └── mcp_client.rs         # NEW: Stdio JSON-RPC client
 │   │   └── lib.rs                    # App entry point
 │   ├── resources/
@@ -184,8 +197,10 @@ Settings are stored in `~/.config/libreoffice-ai/settings.json`:
 
 ```json
 {
+  "ai_provider": "ollama",
   "ollama_url": "http://localhost:11434",
   "selected_model": "qwen2.5:7b",
+  "smolpc_engine_url": "http://localhost:11435",
   "python_path": "python3",
   "documents_path": "~/Documents",
   "libreoffice_path": null,
@@ -197,12 +212,14 @@ Settings are stored in `~/.config/libreoffice-ai/settings.json`:
 
 ### Dependency Checking
 1. **Python**: Executes `python3 --version`
-2. **Ollama**: HTTP GET to `http://localhost:11434/api/version`
+2. **Selected AI provider**:
+   - Ollama: HTTP GET to `/api/version`
+   - smolpc-engine: HTTP GET to `/health`
 3. **LibreOffice**: Checks filesystem paths (cross-platform)
 
 ### MCP Server Integration
 1. App starts → Checks dependencies
-2. If Python + Ollama ready → Starts MCP server process
+2. If Python + selected AI provider ready → Starts MCP server process
 3. MCP server spawned by `McpClient` (prefers bundled `.venv` Python when available)
 4. `McpClient` tracks MCP process lifecycle and stdio JSON-RPC transport
 5. Auto-cleanup on app shutdown
@@ -213,7 +230,7 @@ User opens app
   ↓
 appStore.initialize() (onMount)
   ↓
-Check Python/Ollama/LibreOffice in parallel
+Check Python/Selected AI Provider/LibreOffice in parallel
   ↓
 If ready → start_mcp_server command
   ↓
@@ -226,11 +243,21 @@ Svelte reactivity updates UI
 Show main app or loading screen
 ```
 
+### AI Provider Routing
+1. Frontend sends `chat_stream_ai` request with provider + URLs
+2. Rust command dispatches:
+   - `ollama` → `OllamaService` stream + tool call chunks
+   - `smolpc_engine` → `SmolpcEngineService` stream (preview, sends tools/tool_choice contract, parses tool call payloads, and reassembles streamed partial tool arguments)
+3. Frontend consumes unified `ai-stream-chunk` / `ai-stream-error` events
+4. MCP tool execution runs on detected `tool_calls` for both providers
+5. smolpc-engine path additionally supports JSON fallback extraction from assistant text
+6. Tool execution is bounded by safety limits (call count + recursion depth)
+
 ## Features
 
 ### Week 1 ✅
 **Dependency Detection**
-- Automatically detects Python, Ollama, LibreOffice
+- Automatically detects Python, selected AI provider, LibreOffice
 - Shows installation instructions for missing dependencies
 - Color-coded status badges (checking/ready/not-found)
 
@@ -268,6 +295,17 @@ Show main app or loading screen
 - Tool invocation ready
 - Platform-specific handling (macOS dev / Windows prod)
 
+**Engine Migration Kickoff**
+- Provider selection added to settings (`ollama` / `smolpc_engine`)
+- Unified AI stream command implemented (`chat_stream_ai`)
+- smolpc-engine daemon endpoints integrated for health + generation
+- Added native tool-call delta accumulation to support split streamed function arguments
+- Backend config save now updates in-memory app state
+- smolpc-engine path can trigger MCP tool execution via stream payload or JSON fallback format
+- Unified model discovery API (`list_ai_models`) across providers
+- Saving settings now triggers dependency + MCP re-initialization using updated provider config
+- Tool execution hardening: unknown tool filtering + bounded tool-call loops
+
 **Available LibreOffice Tools (via MCP)**
 - **General**: get_document_properties, list_documents, copy_document
 - **Writer**: create/read documents, add text/headings/paragraphs/tables/images, format text, search/replace, delete content
@@ -282,6 +320,7 @@ Show main app or loading screen
 ### General
 - **Model Compatibility**: Not all Ollama models support function calling. Tested working models: qwen2.5-coder:7b, qwen2.5:1.5b. Models must support Ollama's tool calling format.
 - **CPU Performance**: On CPU-only machines, large models (7B+) with 27 tools can be slow (~9 tok/s). Consider smaller models like qwen2.5:1.5b for faster responses.
+- **smolpc-engine Preview**: Native streamed tool-call payloads (including partial argument deltas) are supported, but non-standard runtimes may still require strict JSON fallback output.
 - **Chat Persistence**: Messages are not saved between sessions
 - **Voice Input**: Not implemented (future feature)
 - **Tracked Engineering Debt**: See [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) for prioritized follow-up issues from code review.
@@ -292,7 +331,7 @@ Show main app or loading screen
 
 **Week 1 ✅**
 - [x] App builds successfully
-- [x] Dependency detection works (Python, Ollama, LibreOffice)
+- [x] Dependency detection works (Python, selected AI provider, LibreOffice)
 - [x] Loading screen shows correct statuses
 - [x] MCP server command executes without errors
 
@@ -310,6 +349,13 @@ Show main app or loading screen
 - [x] Document creation via chat
 - [ ] Presentation creation via chat
 - [ ] Text formatting via chat
+
+**Week 5 🚧**
+- [x] Provider-aware AI routing (`ollama` / `smolpc_engine`)
+- [x] Unified frontend stream event path (`ai-stream-*`)
+- [x] Provider-aware dependency checks in loading flow
+- [x] smolpc-engine native tool-calling integration
+- [ ] End-to-end document operations on smolpc-engine provider
 
 ## Development Notes
 
@@ -385,5 +431,5 @@ See [../libre-office-mcp/LICENSE](../libre-office-mcp/LICENSE)
 ---
 
 **Last Updated**: March 2, 2026
-**Status**: Week 4 Complete - End-to-end tool calling working on Windows
+**Status**: Week 5 In Progress - Engine migration kickoff implemented
 **Target Platform**: Windows (Development on macOS)

@@ -16,6 +16,9 @@ LibreOffice AI is a desktop application that lets you create and edit LibreOffic
 - "Add a table to my report with quarterly sales data"
 - "Format the word 'Important' in bold red"
 
+If you are testing the custom engine provider instead of Ollama, use
+[SMOLPC_ENGINE_WINDOWS_TESTING.md](SMOLPC_ENGINE_WINDOWS_TESTING.md) after finishing prerequisite setup.
+
 ---
 
 ## Step 1: Install Prerequisites

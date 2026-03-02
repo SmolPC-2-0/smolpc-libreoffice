@@ -11,14 +11,14 @@
 
   type View = 'chat' | 'settings';
 
-  let messagesContainer: HTMLDivElement;
+  let messagesContainer = $state<HTMLDivElement | undefined>(undefined);
   let currentView = $state<View>('chat');
 
   onMount(async () => {
     // Load settings first
     await settingsStore.loadSettings();
 
-    await appStore.initialize();
+    await appStore.initialize(settingsStore.settings);
 
     // Load MCP tools if server is running
     if (appStore.mcpStatus?.running) {
@@ -39,21 +39,30 @@
   });
 
   async function handleSend(message: string) {
-    const ollamaUrl = settingsStore.settings.ollama_url;
-    const selectedModel = settingsStore.settings.selected_model;
-    await chatStore.sendMessage(message, selectedModel, ollamaUrl);
+    await chatStore.sendMessage(message, settingsStore.settings);
+  }
+
+  async function handleSettingsSaved() {
+    currentView = 'chat';
+    await appStore.initialize(settingsStore.settings);
+
+    if (appStore.mcpStatus?.running) {
+      await mcpStore.checkStatus();
+      await mcpStore.loadTools();
+    }
   }
 </script>
 
 {#if appStore.isInitializing || !appStore.allDependenciesReady}
   <LoadingScreen
     pythonStatus={appStore.pythonStatus}
-    ollamaStatus={appStore.ollamaStatus}
+    aiStatus={appStore.aiStatus}
+    aiProviderLabel={appStore.aiProviderLabel}
     libreofficeStatus={appStore.libreofficeStatus}
     mcpStatus={appStore.mcpStatus}
   />
 {:else if currentView === 'settings'}
-  <SettingsPage onClose={() => currentView = 'chat'} />
+  <SettingsPage onClose={() => currentView = 'chat'} onSaved={handleSettingsSaved} />
 {:else}
   <div class="app">
     <header>

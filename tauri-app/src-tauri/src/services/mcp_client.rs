@@ -29,9 +29,13 @@ impl McpClient {
 
     /// Extract stdin/stdout from child process and store them persistently.
     fn store_child_io(&self, child: &mut Child) -> Result<()> {
-        let child_stdin = child.stdin.take()
+        let child_stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| anyhow!("Failed to take stdin from child process"))?;
-        let child_stdout = child.stdout.take()
+        let child_stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| anyhow!("Failed to take stdout from child process"))?;
 
         let mut stdin_guard = self.stdin.lock().unwrap();
@@ -62,7 +66,11 @@ impl McpClient {
                 "python3".to_string()
             };
 
-            log::info!("Starting libre.py: {} {}", python_cmd, libre_script.display());
+            log::info!(
+                "Starting libre.py: {} {}",
+                python_cmd,
+                libre_script.display()
+            );
 
             let mut child = Command::new(&python_cmd)
                 .arg(&libre_script)
@@ -81,50 +89,57 @@ impl McpClient {
             return Ok(());
         }
 
-        // Production or Windows: Use run.sh wrapper or main.py
-        let run_script = mcp_dir.join("run.sh");
-        let main_script = mcp_dir.join("main.py");
+        #[cfg(not(all(target_os = "macos", debug_assertions)))]
+        {
+            // Production or Windows: Use run.sh wrapper or main.py
+            let run_script = mcp_dir.join("run.sh");
+            let main_script = mcp_dir.join("main.py");
 
-        let (command, args): (String, Vec<String>) = if run_script.exists() && cfg!(unix) {
-            log::info!("Starting MCP server via wrapper: {}", run_script.display());
-            (run_script.to_string_lossy().to_string(), vec![])
-        } else if main_script.exists() {
-            // Try venv python first, then fall back to system python
-            let venv_python = if cfg!(target_os = "windows") {
-                mcp_dir.join(".venv/Scripts/python.exe")
+            let (command, args): (String, Vec<String>) = if run_script.exists() && cfg!(unix) {
+                log::info!("Starting MCP server via wrapper: {}", run_script.display());
+                (run_script.to_string_lossy().to_string(), vec![])
+            } else if main_script.exists() {
+                // Try venv python first, then fall back to system python
+                let venv_python = if cfg!(target_os = "windows") {
+                    mcp_dir.join(".venv/Scripts/python.exe")
+                } else {
+                    mcp_dir.join(".venv/bin/python")
+                };
+                let python_cmd = if venv_python.exists() {
+                    venv_python.to_string_lossy().to_string()
+                } else if cfg!(target_os = "windows") {
+                    "python".to_string()
+                } else {
+                    "python3".to_string()
+                };
+                log::info!(
+                    "Starting MCP server: {} {}",
+                    python_cmd,
+                    main_script.display()
+                );
+                (python_cmd, vec![main_script.to_string_lossy().to_string()])
             } else {
-                mcp_dir.join(".venv/bin/python")
+                return Err(anyhow!("MCP server scripts not found at {:?}", mcp_dir));
             };
-            let python_cmd = if venv_python.exists() {
-                venv_python.to_string_lossy().to_string()
-            } else if cfg!(target_os = "windows") {
-                "python".to_string()
-            } else {
-                "python3".to_string()
-            };
-            log::info!("Starting MCP server: {} {}", python_cmd, main_script.display());
-            (python_cmd, vec![main_script.to_string_lossy().to_string()])
-        } else {
-            return Err(anyhow!("MCP server scripts not found at {:?}", mcp_dir));
-        };
 
-        let mut child = Command::new(&command)
-            .args(&args)
-            .current_dir(&mcp_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            let mut child = Command::new(&command)
+                .args(&args)
+                .current_dir(&mcp_dir)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
 
-        self.store_child_io(&mut child)?;
+            self.store_child_io(&mut child)?;
 
-        let mut process_guard = self.process.lock().unwrap();
-        *process_guard = Some(child);
+            let mut process_guard = self.process.lock().unwrap();
+            *process_guard = Some(child);
 
-        // Short initial wait — retry logic in initialize() handles the rest
-        std::thread::sleep(Duration::from_millis(3000));
+            // Short initial wait — retry logic in initialize() handles the rest
+            std::thread::sleep(Duration::from_millis(3000));
 
-        Ok(())
+            Ok(())
+        }
     }
 
     /// Stop the MCP server process
@@ -192,14 +207,18 @@ impl McpClient {
                     }
                     log::info!(
                         "MCP initialized successfully on attempt {} ({:?} elapsed)",
-                        attempt, start_time.elapsed()
+                        attempt,
+                        start_time.elapsed()
                     );
                     return Ok(());
                 }
                 Err(e) => {
                     log::warn!(
                         "MCP initialize attempt {}/{} failed: {}. Retrying in {:?}...",
-                        attempt, max_attempts, e, retry_delay
+                        attempt,
+                        max_attempts,
+                        e,
+                        retry_delay
                     );
                     if attempt < max_attempts {
                         std::thread::sleep(retry_delay);
@@ -208,16 +227,15 @@ impl McpClient {
             }
         }
 
-        Err(anyhow!("MCP initialization failed after {} attempts", max_attempts))
+        Err(anyhow!(
+            "MCP initialization failed after {} attempts",
+            max_attempts
+        ))
     }
 
     /// Discover available tools
     pub fn list_tools(&self) -> Result<Vec<McpTool>> {
-        let request = McpRequest::new(
-            self.next_id(),
-            "tools/list".to_string(),
-            None,
-        );
+        let request = McpRequest::new(self.next_id(), "tools/list".to_string(), None);
 
         let response = self.send_request(request)?;
 
@@ -227,7 +245,7 @@ impl McpClient {
 
         if let Some(result) = response.result {
             let tools: Vec<McpTool> = serde_json::from_value(
-                result.get("tools").cloned().unwrap_or(Value::Array(vec![]))
+                result.get("tools").cloned().unwrap_or(Value::Array(vec![])),
             )?;
 
             // Cache the tools
@@ -250,11 +268,7 @@ impl McpClient {
             "arguments": arguments
         });
 
-        let request = McpRequest::new(
-            self.next_id(),
-            "tools/call".to_string(),
-            Some(params),
-        );
+        let request = McpRequest::new(self.next_id(), "tools/call".to_string(), Some(params));
 
         let response = self.send_request(request)?;
 
@@ -281,7 +295,8 @@ impl McpClient {
         // Write request to stdin
         {
             let mut stdin_guard = self.stdin.lock().unwrap();
-            let stdin = stdin_guard.as_mut()
+            let stdin = stdin_guard
+                .as_mut()
                 .ok_or_else(|| anyhow!("MCP server stdin not available"))?;
 
             let request_json = serde_json::to_string(&request)?;
@@ -300,8 +315,12 @@ impl McpClient {
             if let Some(reader) = reader_guard.as_mut() {
                 let mut line = String::new();
                 match reader.read_line(&mut line) {
-                    Ok(_) => { let _ = tx.send(Ok(line)); }
-                    Err(e) => { let _ = tx.send(Err(e)); }
+                    Ok(_) => {
+                        let _ = tx.send(Ok(line));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                    }
                 }
             } else {
                 let _ = tx.send(Err(std::io::Error::new(

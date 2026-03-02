@@ -3,12 +3,13 @@
 
   interface Props {
     pythonStatus: DependencyStatus | null;
-    ollamaStatus: DependencyStatus | null;
+    aiStatus: DependencyStatus | null;
+    aiProviderLabel: string;
     libreofficeStatus: DependencyStatus | null;
     mcpStatus: McpStatus | null;
   }
 
-  let { pythonStatus, ollamaStatus, libreofficeStatus, mcpStatus }: Props = $props();
+  let { pythonStatus, aiStatus, aiProviderLabel, libreofficeStatus, mcpStatus }: Props = $props();
 
   function getStatusBadge(dep: DependencyStatus | null) {
     if (!dep) return { class: 'checking', text: 'Checking...' };
@@ -42,16 +43,16 @@
         </div>
       {/if}
 
-      <!-- Ollama Status -->
+      <!-- AI Provider Status -->
       <div class="dependency-item">
-        <span class="dep-name">Ollama</span>
-        <span class="badge {getStatusBadge(ollamaStatus).class}">
-          {getStatusBadge(ollamaStatus).text}
+        <span class="dep-name">{aiProviderLabel}</span>
+        <span class="badge {getStatusBadge(aiStatus).class}">
+          {getStatusBadge(aiStatus).text}
         </span>
       </div>
-      {#if ollamaStatus?.error_message}
+      {#if aiStatus?.error_message}
         <div class="alert error">
-          {ollamaStatus.error_message}
+          {aiStatus.error_message}
         </div>
       {/if}
 

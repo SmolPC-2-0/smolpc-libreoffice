@@ -21,7 +21,13 @@ pub async fn check_python() -> Result<DependencyStatus, String> {
     for cmd in commands {
         if let Ok(output) = Command::new(cmd).arg("--version").output() {
             if output.status.success() {
-                let version = String::from_utf8_lossy(&output.stdout).to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let version = if stdout.trim().is_empty() {
+                    stderr
+                } else {
+                    stdout
+                };
                 return Ok(DependencyStatus {
                     name: "Python".to_string(),
                     installed: true,
@@ -41,8 +47,11 @@ pub async fn check_python() -> Result<DependencyStatus, String> {
 }
 
 #[tauri::command]
-pub async fn check_ollama() -> Result<DependencyStatus, String> {
-    match reqwest::get("http://localhost:11434/api/version").await {
+pub async fn check_ollama(ollama_url: Option<String>) -> Result<DependencyStatus, String> {
+    let base_url = ollama_url.unwrap_or_else(|| "http://localhost:11434".to_string());
+    let version_url = format!("{}/api/version", base_url.trim_end_matches('/'));
+
+    match reqwest::get(version_url).await {
         Ok(response) => {
             let version = response.text().await.unwrap_or_default();
             Ok(DependencyStatus {
@@ -57,6 +66,37 @@ pub async fn check_ollama() -> Result<DependencyStatus, String> {
             installed: false,
             version: None,
             error_message: Some("Ollama not running. Please install from ollama.ai".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn check_smolpc_engine(engine_url: Option<String>) -> Result<DependencyStatus, String> {
+    let base_url = engine_url.unwrap_or_else(|| "http://localhost:11435".to_string());
+    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+
+    match reqwest::get(health_url).await {
+        Ok(response) if response.status().is_success() => {
+            let version = response.text().await.unwrap_or_default();
+            Ok(DependencyStatus {
+                name: "SmolPC Engine".to_string(),
+                installed: true,
+                version: if version.trim().is_empty() {
+                    Some("healthy".to_string())
+                } else {
+                    Some(version)
+                },
+                error_message: None,
+            })
+        }
+        _ => Ok(DependencyStatus {
+            name: "SmolPC Engine".to_string(),
+            installed: false,
+            version: None,
+            error_message: Some(
+                "smolpc-engine daemon not running. Start engine daemon or switch provider to Ollama."
+                    .to_string(),
+            ),
         }),
     }
 }

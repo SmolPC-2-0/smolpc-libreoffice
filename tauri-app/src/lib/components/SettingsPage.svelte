@@ -4,19 +4,29 @@
 
   interface Props {
     onClose: () => void;
+    onSaved?: () => void | Promise<void>;
   }
 
-  let { onClose }: Props = $props();
+  let { onClose, onSaved = undefined }: Props = $props();
 
   onMount(async () => {
     await settingsStore.loadSettings();
     await settingsStore.loadAvailableModels();
   });
 
+  async function handleProviderChange(provider: 'ollama' | 'smolpc_engine') {
+    settingsStore.updateSetting('ai_provider', provider);
+    await settingsStore.loadAvailableModels();
+  }
+
   async function handleSave() {
     try {
       await settingsStore.saveSettings();
-      onClose();
+      if (onSaved) {
+        await onSaved();
+      } else {
+        onClose();
+      }
     } catch (error) {
       console.error('Failed to save settings:', error);
       alert('Failed to save settings. Please try again.');
@@ -39,43 +49,99 @@
   </div>
 
   <div class="settings-content">
-    <!-- Ollama Configuration -->
+    <!-- AI Provider Configuration -->
     <section class="settings-section">
-      <h2>Ollama Configuration</h2>
+      <h2>AI Provider</h2>
 
       <div class="setting-item">
-        <label for="ollama-url">Ollama URL</label>
-        <input
-          id="ollama-url"
-          type="text"
-          value={settingsStore.settings.ollama_url}
-          oninput={(e) => settingsStore.updateSetting('ollama_url', e.currentTarget.value)}
-          placeholder="http://localhost:11434"
-        />
-        <span class="setting-description">URL where Ollama is running</span>
-      </div>
-
-      <div class="setting-item">
-        <label for="model-select">Model</label>
+        <label for="ai-provider">Provider</label>
         <select
-          id="model-select"
-          value={settingsStore.settings.selected_model}
-          onchange={(e) => settingsStore.updateSetting('selected_model', e.currentTarget.value)}
+          id="ai-provider"
+          value={settingsStore.settings.ai_provider}
+          onchange={async (e) => handleProviderChange(e.currentTarget.value as 'ollama' | 'smolpc_engine')}
         >
-          {#if settingsStore.availableModels.length === 0}
-            <option value={settingsStore.settings.selected_model}>
-              {settingsStore.settings.selected_model}
-            </option>
-          {:else}
-            {#each settingsStore.availableModels as model}
-              <option value={model.name}>{model.name}</option>
-            {/each}
-          {/if}
+          <option value="ollama">Ollama</option>
+          <option value="smolpc_engine">SmolPC Engine (Preview)</option>
         </select>
-        <span class="setting-description">
-          {settingsStore.availableModels.length} models available
-        </span>
+        <span class="setting-description">Select the AI runtime used for chat responses</span>
       </div>
+
+      {#if settingsStore.settings.ai_provider === 'ollama'}
+        <div class="setting-item">
+          <label for="ollama-url">Ollama URL</label>
+          <input
+            id="ollama-url"
+            type="text"
+            value={settingsStore.settings.ollama_url}
+            oninput={(e) => settingsStore.updateSetting('ollama_url', e.currentTarget.value)}
+            placeholder="http://localhost:11434"
+          />
+          <span class="setting-description">URL where Ollama is running</span>
+        </div>
+
+        <div class="setting-item">
+          <label for="model-select">Model</label>
+          <select
+            id="model-select"
+            value={settingsStore.settings.selected_model}
+            onchange={(e) => settingsStore.updateSetting('selected_model', e.currentTarget.value)}
+          >
+            {#if settingsStore.availableModels.length === 0}
+              <option value={settingsStore.settings.selected_model}>
+                {settingsStore.settings.selected_model}
+              </option>
+            {:else}
+              {#each settingsStore.availableModels as model}
+                <option value={model.name}>{model.name}</option>
+              {/each}
+            {/if}
+          </select>
+          <span class="setting-description">
+            {settingsStore.availableModels.length} models available
+          </span>
+        </div>
+      {:else}
+        <div class="setting-item">
+          <label for="smolpc-engine-url">SmolPC Engine URL</label>
+          <input
+            id="smolpc-engine-url"
+            type="text"
+            value={settingsStore.settings.smolpc_engine_url}
+            oninput={(e) => settingsStore.updateSetting('smolpc_engine_url', e.currentTarget.value)}
+            placeholder="http://localhost:11435"
+          />
+          <span class="setting-description">
+            URL for smolpc-engine daemon (`/health`, `/generate`)
+          </span>
+        </div>
+
+        <div class="setting-item">
+          <label for="smolpc-engine-model">Model ID</label>
+          {#if settingsStore.availableModels.length > 0}
+            <select
+              id="smolpc-engine-model"
+              value={settingsStore.settings.selected_model}
+              onchange={(e) => settingsStore.updateSetting('selected_model', e.currentTarget.value)}
+            >
+              {#each settingsStore.availableModels as model}
+                <option value={model.name}>{model.name}</option>
+              {/each}
+            </select>
+            <span class="setting-description">
+              {settingsStore.availableModels.length} models discovered from smolpc-engine
+            </span>
+          {:else}
+            <input
+              id="smolpc-engine-model"
+              type="text"
+              value={settingsStore.settings.selected_model}
+              oninput={(e) => settingsStore.updateSetting('selected_model', e.currentTarget.value)}
+              placeholder="qwen2.5-coder-1.5b-int4"
+            />
+            <span class="setting-description">Model identifier expected by smolpc-engine</span>
+          {/if}
+        </div>
+      {/if}
 
       <div class="setting-item">
         <label for="temperature">Temperature</label>
