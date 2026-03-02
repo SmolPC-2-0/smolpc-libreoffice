@@ -48,6 +48,14 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 
 **→ [Complete Windows Setup Guide](GETTING_STARTED_WINDOWS.md)** - Step-by-step installation for beginners with no dependencies installed.
 
+## Documentation
+
+- [README.md](README.md) - project overview and quick start
+- [GETTING_STARTED_WINDOWS.md](GETTING_STARTED_WINDOWS.md) - full Windows setup guide
+- [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) - tracked engineering debt and follow-up issues
+- [MIGRATION_PLAN.md](../MIGRATION_PLAN.md) - long-term migration roadmap
+- [MACOS_TESTING.md](../MACOS_TESTING.md) - macOS dev workflow notes
+
 ## Tech Stack
 
 ### Frontend
@@ -195,8 +203,8 @@ Settings are stored in `~/.config/libreoffice-ai/settings.json`:
 ### MCP Server Integration
 1. App starts → Checks dependencies
 2. If Python + Ollama ready → Starts MCP server process
-3. MCP server spawned with: `python3 <resources>/mcp_server/main.py`
-4. ProcessManager tracks MCP process lifecycle
+3. MCP server spawned by `McpClient` (prefers bundled `.venv` Python when available)
+4. `McpClient` tracks MCP process lifecycle and stdio JSON-RPC transport
 5. Auto-cleanup on app shutdown
 
 ### State Flow
@@ -209,7 +217,7 @@ Check Python/Ollama/LibreOffice in parallel
   ↓
 If ready → start_mcp_server command
   ↓
-ProcessManager spawns MCP process
+McpClient spawns MCP process
   ↓
 Update mcpStatus in store
   ↓
@@ -276,6 +284,7 @@ Show main app or loading screen
 - **CPU Performance**: On CPU-only machines, large models (7B+) with 27 tools can be slow (~9 tok/s). Consider smaller models like qwen2.5:1.5b for faster responses.
 - **Chat Persistence**: Messages are not saved between sessions
 - **Voice Input**: Not implemented (future feature)
+- **Tracked Engineering Debt**: See [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) for prioritized follow-up issues from code review.
 
 ## Testing
 
@@ -316,7 +325,8 @@ This project uses Svelte 5 runes for state management:
 - AppHandle required for resource path resolution
 
 ### Process Management
-- All child processes tracked in ProcessManager
+- MCP server process is currently managed by `McpClient`
+- `ProcessManager` remains available for broader process lifecycle work
 - Auto-cleanup via Drop trait
 - Thread-safe with parking_lot RwLock
 
@@ -374,6 +384,6 @@ See [../libre-office-mcp/LICENSE](../libre-office-mcp/LICENSE)
 
 ---
 
-**Last Updated**: February 10, 2026
+**Last Updated**: March 2, 2026
 **Status**: Week 4 Complete - End-to-end tool calling working on Windows
 **Target Platform**: Windows (Development on macOS)
