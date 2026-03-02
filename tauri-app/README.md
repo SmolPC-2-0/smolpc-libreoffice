@@ -53,6 +53,7 @@ Cross-platform desktop application for AI-powered LibreOffice interaction, built
 - [README.md](README.md) - project overview and quick start
 - [GETTING_STARTED_WINDOWS.md](GETTING_STARTED_WINDOWS.md) - full Windows setup guide
 - [ENGINEERING_ISSUES.md](ENGINEERING_ISSUES.md) - tracked engineering debt and follow-up issues
+- [docs/shared-engine-migration/README.md](docs/shared-engine-migration/README.md) - full handoff package for migrating from Ollama to shared engine
 - [MIGRATION_PLAN.md](../MIGRATION_PLAN.md) - long-term migration roadmap
 - [MACOS_TESTING.md](../MACOS_TESTING.md) - macOS dev workflow notes
 
