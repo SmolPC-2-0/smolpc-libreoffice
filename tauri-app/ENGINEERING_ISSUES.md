@@ -6,6 +6,12 @@ This file tracks non-blocking and latent engineering issues found during code re
 Document creation and heading insertion currently work on Windows, so these are primarily
 stability and maintainability risks to address in follow-up work.
 
+## Related migration handoff docs
+
+For the complete Ollama-to-shared-engine migration package, see:
+
+- [`docs/shared-engine-migration/README.md`](docs/shared-engine-migration/README.md)
+
 ## Priority legend
 
 - P0: must fix immediately
