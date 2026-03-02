@@ -67,6 +67,9 @@ class ChatStore {
       toolNames
         ? `You have the following tools available: ${toolNames}. Use them when the user asks you to create, edit, or manage documents. Always prefer using your tools over giving manual instructions.`
         : '',
+      toolNames
+        ? 'If the user asks what tools are available, list tool names from the available tool list above and do not claim that you lack tool access.'
+        : '',
       providerHint,
       customPrompt
     ]
@@ -277,6 +280,17 @@ class ChatStore {
   }
 
   private tryParseToolCallJson(raw: string): ToolCall[] | undefined {
+    const candidates = this.buildToolCallJsonCandidates(raw);
+    for (const candidate of candidates) {
+      const parsed = this.parseToolCallJsonValue(candidate);
+      if (parsed && parsed.length > 0) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }
+
+  private parseToolCallJsonValue(raw: string): ToolCall[] | undefined {
     try {
       const parsed = JSON.parse(raw);
 
@@ -297,6 +311,99 @@ class ChatStore {
       }
     } catch {
       return undefined;
+    }
+
+    return undefined;
+  }
+
+  private buildToolCallJsonCandidates(raw: string): string[] {
+    const seed = raw.trim();
+    if (!seed) return [];
+
+    const firstBrace = seed.indexOf('{');
+    const lastBrace = seed.lastIndexOf('}');
+
+    const baseCandidates: string[] = [seed];
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      baseCandidates.push(seed.slice(firstBrace, lastBrace + 1));
+    }
+
+    const expanded = new Set<string>();
+    for (const base of baseCandidates) {
+      const normalizedKey = base.replace(/"tool\s*calls"/ig, '"tool_calls"');
+      expanded.add(normalizedKey);
+
+      const balanced = this.extractBalancedJsonObject(normalizedKey);
+      if (balanced) {
+        expanded.add(balanced);
+      }
+    }
+
+    const repaired = new Set<string>(expanded);
+    for (const candidate of expanded) {
+      let current = candidate;
+      for (let i = 0; i < 4; i++) {
+        const next = current.replace(/}\s*}\s*]/g, '}]');
+        if (next === current) break;
+        repaired.add(next);
+        current = next;
+      }
+    }
+
+    return Array.from(repaired);
+  }
+
+  private extractBalancedJsonObject(input: string): string | undefined {
+    const start = input.indexOf('{');
+    if (start < 0) return undefined;
+
+    let curlyDepth = 0;
+    let squareDepth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < input.length; i++) {
+      const ch = input[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === '{') {
+        curlyDepth += 1;
+        continue;
+      }
+      if (ch === '}') {
+        curlyDepth -= 1;
+        if (curlyDepth < 0) return undefined;
+      }
+      if (ch === '[') {
+        squareDepth += 1;
+        continue;
+      }
+      if (ch === ']') {
+        squareDepth -= 1;
+        if (squareDepth < 0) return undefined;
+      }
+
+      if (curlyDepth === 0 && squareDepth === 0) {
+        return input.slice(start, i + 1);
+      }
     }
 
     return undefined;

@@ -209,10 +209,7 @@ impl SmolpcEngineService {
         let messages = request
             .messages
             .iter()
-            .map(|msg| EngineMessage {
-                role: msg.role.clone(),
-                content: msg.content.clone(),
-            })
+            .map(to_engine_message)
             .collect::<Vec<_>>();
 
         let payload = EngineGeneratePayload {
@@ -485,6 +482,29 @@ fn flatten_prompt(messages: &[ChatMessage]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn to_engine_message(message: &ChatMessage) -> EngineMessage {
+    let role = match message.role.trim().to_ascii_lowercase().as_str() {
+        "system" => "system",
+        "assistant" => "assistant",
+        "user" => "user",
+        // Shared engine currently rejects OpenAI `tool` role;
+        // encode tool output as user-visible context for follow-up turns.
+        "tool" => "user",
+        _ => "user",
+    };
+
+    let content = if message.role.eq_ignore_ascii_case("tool") {
+        format!("Tool result:\n{}", message.content)
+    } else {
+        message.content.clone()
+    };
+
+    EngineMessage {
+        role: role.to_string(),
+        content,
+    }
 }
 
 fn to_engine_tools(tools: &[Tool]) -> Vec<EngineTool> {
